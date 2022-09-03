@@ -1,4 +1,7 @@
-use std::ops::{Add, AddAssign, Index, IndexMut, Sub, SubAssign};
+use std::{
+    mem,
+    ops::{Add, AddAssign, Index, IndexMut, Sub, SubAssign},
+};
 
 use bevy::prelude::*;
 
@@ -8,6 +11,7 @@ use crate::{rendering::MeshBuilder, tile::Tile, CHUNK_SIZE};
 #[derive(Debug)]
 pub struct Chunk<T: Tile> {
     tiles: [Option<T>; CHUNK_SIZE * CHUNK_SIZE],
+    regenerate_mesh: bool,
     mesh_carry_data: <<T as Tile>::MeshBuilder as MeshBuilder>::CarryData,
     mesh_entity: Option<Entity>,
 }
@@ -18,12 +22,38 @@ impl<T: Tile> Chunk<T> {
     pub fn is_set(&self, pos: ChunkPos) -> bool {
         self[pos].is_some()
     }
+
+    /// Tells this to regenerate it's mesh the next time it is displayed
+    ///
+    /// Mesh regeneration is more expensive than animation, so use animation whenever
+    /// possible
+    #[inline]
+    pub fn regenerate_mesh(&mut self) {
+        self.regenerate_mesh = true;
+    }
+
+    /// Sets the tile at `pos`, returning it's previous value
+    ///
+    /// Tells this to regenerate it's mesh the next time it is displayed
+    pub fn set(&mut self, pos: ChunkPos, tile: impl Into<T>) -> Option<T> {
+        self.regenerate_mesh();
+        mem::replace(&mut self[pos], Some(tile.into()))
+    }
+
+    /// Removes the tile at `pos`, returning it's previous value
+    ///
+    /// Tells this to regenerate it's mesh the next time it is displayed
+    pub fn remove(&mut self, pos: ChunkPos) -> Option<T> {
+        self.regenerate_mesh();
+        mem::take(&mut self[pos])
+    }
 }
 
 impl<T: Tile> Default for Chunk<T> {
     fn default() -> Self {
         Chunk {
             tiles: [(); CHUNK_SIZE * CHUNK_SIZE].map(|_| None),
+            regenerate_mesh: false,
             mesh_carry_data: <<T as Tile>::MeshBuilder as MeshBuilder>::CarryData::default(),
             mesh_entity: None,
         }
@@ -42,6 +72,9 @@ impl<T: Tile> Index<ChunkPos> for Chunk<T> {
 
 impl<T: Tile> IndexMut<ChunkPos> for Chunk<T> {
     /// Returns a mutable reference to the tile slot at the index
+    ///
+    /// If mutating the tile slot results in a change that requires
+    /// regenerating the chunk mesh, call [`Self::regenerate_mesh()`]
     #[must_use]
     fn index_mut(&mut self, index: ChunkPos) -> &mut Self::Output {
         &mut self.tiles[index.as_index()]
@@ -121,6 +154,24 @@ impl ChunkPos {
         self.into()
     }
 
+    /// `self` + `rhs`, wrapped at [`CHUNK_SIZE`]
+    #[must_use]
+    pub fn wrapping_add(self, rhs: Self) -> Self {
+        ChunkPos(
+            self.x().wrapping_add(rhs.x()) & (CHUNK_SIZE as u8 - 1),
+            self.y().wrapping_add(rhs.y()) & (CHUNK_SIZE as u8 - 1),
+        )
+    }
+
+    /// `self` - `rhs`, wrapped at [`CHUNK_SIZE`]
+    #[must_use]
+    pub fn wrapping_sub(self, rhs: Self) -> Self {
+        ChunkPos(
+            self.x().wrapping_sub(rhs.x()) & (CHUNK_SIZE as u8 - 1),
+            self.y().wrapping_sub(rhs.y()) & (CHUNK_SIZE as u8 - 1),
+        )
+    }
+
     /// `self` + `rhs`
     ///
     /// Returns the result of the addition wrapped around [`CHUNK_SIZE`],
@@ -128,7 +179,7 @@ impl ChunkPos {
     #[must_use]
     pub fn overflowing_add(self, rhs: Self) -> (Self, BVec2) {
         fn overflowing_add_u8(lhs: u8, rhs: u8) -> (u8, bool) {
-            let r = lhs + rhs;
+            let r = lhs.wrapping_add(rhs);
             (r & (CHUNK_SIZE as u8 - 1), r > CHUNK_SIZE as u8)
         }
         let (x, cx) = overflowing_add_u8(self.x(), rhs.x());

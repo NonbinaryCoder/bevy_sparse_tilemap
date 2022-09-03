@@ -48,26 +48,30 @@ impl<T: Tile> Tilemap<T> {
     }
 
     /// Returns a mutable reference to the tile at the position in this tilemap if it exists
+    ///
+    /// If mutating the tile slot results in a change that requires
+    /// regenerating the chunk mesh, call [`regenerate_mesh()`](Chunk::regenerate_mesh())
+    /// on the chunk
     #[must_use]
     pub fn get_mut(&mut self, pos: TilemapPos) -> Option<&mut T> {
         self.get_chunk_mut(pos.chunk)
             .and_then(|chunk| chunk[pos.tile].as_mut())
     }
 
-    /// Inserts a tile into the tilemap
+    /// Sets the tile at `pos`, returning it's previous value
     ///
-    /// Returns the replaced tile if one exists
-    pub fn insert(&mut self, tile: impl Into<T>, pos: TilemapPos) -> Option<T> {
-        mem::replace(
-            &mut self.get_or_create_chunk(pos.chunk)[pos.tile],
-            Some(tile.into()),
-        )
+    /// Tells the chunk the tile is in to regenerate it's mesh the next time it's displayed
+    pub fn set(&mut self, pos: TilemapPos, tile: impl Into<T>) -> Option<T> {
+        self.get_or_create_chunk(pos.chunk)
+            .set(pos.tile, tile.into())
     }
 
     /// Removes the tile at pos and returns it
+    ///
+    /// Tells the chunk the tile is in to regenerate it's mesh the next time it's displayed
     pub fn remove(&mut self, pos: TilemapPos) -> Option<T> {
         self.get_chunk_mut(pos.chunk)
-            .and_then(|chunk| mem::take(&mut chunk[pos.tile]))
+            .and_then(|chunk| chunk.remove(pos.tile))
     }
 }
 
