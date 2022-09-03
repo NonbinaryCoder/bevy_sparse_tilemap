@@ -1,35 +1,56 @@
-use std::ops::{Add, AddAssign, Sub, SubAssign};
+use std::ops::{Add, AddAssign, Index, IndexMut, Sub, SubAssign};
 
 use bevy::prelude::*;
 
 use crate::{rendering::MeshBuilder, tile::Tile, CHUNK_SIZE};
 
-/// A chunk of tiles;
-/// [`CHUNK_SIZE`](super::super::CHUNK_SIZE) by [`CHUNK_SIZE`](super::super::CHUNK_SIZE)
+/// A chunk of tiles; [`CHUNK_SIZE`] by [`CHUNK_SIZE`]
 #[derive(Debug)]
 pub struct Chunk<T: Tile> {
-    _tiles: [Option<T>; CHUNK_SIZE * CHUNK_SIZE],
-    _mesh_carry_data: <<T as Tile>::MeshBuilder as MeshBuilder>::CarryData,
-    _mesh_entity: Entity,
+    tiles: [Option<T>; CHUNK_SIZE * CHUNK_SIZE],
+    mesh_carry_data: <<T as Tile>::MeshBuilder as MeshBuilder>::CarryData,
+    mesh_entity: Option<Entity>,
 }
 
 impl<T: Tile> Chunk<T> {
-    /// Returns a reference to the tile at the position in this chunk
+    /// Returns `true` if there is a tile at the position specified
     #[must_use]
-    pub fn get(&self, pos: ChunkPos) -> &Option<T> {
-        todo!()
+    pub fn is_set(&self, pos: ChunkPos) -> bool {
+        self[pos].is_some()
     }
+}
 
-    /// Returns a mutable referene to the tile at the position in this chunk
+impl<T: Tile> Default for Chunk<T> {
+    fn default() -> Self {
+        Chunk {
+            tiles: [(); CHUNK_SIZE * CHUNK_SIZE].map(|_| None),
+            mesh_carry_data: <<T as Tile>::MeshBuilder as MeshBuilder>::CarryData::default(),
+            mesh_entity: None,
+        }
+    }
+}
+
+impl<T: Tile> Index<ChunkPos> for Chunk<T> {
+    type Output = Option<T>;
+
+    /// Returns a reference to the tile slot at the index
     #[must_use]
-    pub fn get_mut(&mut self, pos: ChunkPos) -> &mut Option<T> {
-        todo!()
+    fn index(&self, index: ChunkPos) -> &Self::Output {
+        &self.tiles[index.as_index()]
+    }
+}
+
+impl<T: Tile> IndexMut<ChunkPos> for Chunk<T> {
+    /// Returns a mutable reference to the tile slot at the index
+    #[must_use]
+    fn index_mut(&mut self, index: ChunkPos) -> &mut Self::Output {
+        &mut self.tiles[index.as_index()]
     }
 }
 
 /// A position in a chunk
 ///
-/// Gaurenteed to be between 0 and [`CHUNK_SIZE`](super::super::CHUNK_SIZE)
+/// Gaurenteed to be between 0 and [`CHUNK_SIZE`]
 ///
 /// # Notes
 ///
@@ -43,12 +64,12 @@ impl ChunkPos {
     ///
     /// # Panics
     ///
-    /// Panics if either coordinate is not in the range
-    /// 0 <= x < [`CHUNK_SIZE`](super::super::CHUNK_SIZE)
+    /// Panics if x or y is >= [`CHUNK_SIZE`]
     #[must_use]
     #[inline]
     pub fn new(x: u8, y: u8) -> Self {
-        todo!()
+        assert!(x < CHUNK_SIZE as u8 && y < CHUNK_SIZE as u8);
+        ChunkPos(x, y)
     }
 
     /// The x coordinate of this
@@ -69,38 +90,88 @@ impl ChunkPos {
     ///
     /// # Panics
     ///
-    /// Panics if x >= [`CHUNK_SIZE`](super::super::CHUNK_SIZE)
+    /// Panics if x >= [`CHUNK_SIZE`]
     #[inline]
     pub fn set_x(&mut self, x: u8) {
-        todo!()
+        assert!(x <= CHUNK_SIZE as u8);
+        self.0 = x
     }
 
     /// Sets the y position of this
     ///
     /// # Panics
     ///
-    /// Panics if y >= [`CHUNK_SIZE`](super::super::CHUNK_SIZE)
+    /// Panics if y >= [`CHUNK_SIZE`]
     #[inline]
     pub fn set_y(&mut self, y: u8) {
-        todo!()
+        assert!(y <= CHUNK_SIZE as u8);
+        self.0 = y
+    }
+
+    /// This, but as an index into a [`CHUNK_SIZE`]x[`CHUNK_SIZE`] array (row-major)
+    #[must_use]
+    pub fn as_index(self) -> usize {
+        let ChunkPos(x, y) = self;
+        x as usize + y as usize * CHUNK_SIZE
+    }
+
+    /// This as an [`IVec2`]
+    #[must_use]
+    pub fn to_ivec2(self) -> IVec2 {
+        self.into()
+    }
+
+    /// `self` + `rhs`
+    ///
+    /// Returns the result of the addition wrapped around [`CHUNK_SIZE`],
+    /// and a [`BVec2`] indicating whether overflow occured
+    #[must_use]
+    pub fn overflowing_add(self, rhs: Self) -> (Self, BVec2) {
+        fn overflowing_add_u8(lhs: u8, rhs: u8) -> (u8, bool) {
+            let r = lhs + rhs;
+            (r & (CHUNK_SIZE as u8 - 1), r > CHUNK_SIZE as u8)
+        }
+        let (x, cx) = overflowing_add_u8(self.x(), rhs.x());
+        let (y, cy) = overflowing_add_u8(self.y(), rhs.y());
+        (ChunkPos(x, y), BVec2::new(cx, cy))
+    }
+
+    /// `self` - `rhs`
+    ///
+    /// Returns the result of the subtraction wrapped around [`CHUNK_SIZE`],
+    /// and a [`BVec2`] indicating whether overflow occured
+    pub fn overflowing_sub(self, rhs: Self) -> (Self, BVec2) {
+        fn overflowing_sub_u8(lhs: u8, rhs: u8) -> (u8, bool) {
+            let (sum, carry) = lhs.overflowing_sub(rhs);
+            (sum & (CHUNK_SIZE as u8 - 1), carry)
+        }
+        let (x, cx) = overflowing_sub_u8(self.x(), rhs.x());
+        let (y, cy) = overflowing_sub_u8(self.y(), rhs.y());
+        (ChunkPos(x, y), BVec2::new(cx, cy))
     }
 }
 
 impl TryFrom<IVec2> for ChunkPos {
-    type Error = ToChunkPosError;
+    type Error = ();
 
     fn try_from(value: IVec2) -> Result<Self, Self::Error> {
-        todo!()
+        match value.x >= 0
+            && value.x < CHUNK_SIZE as i32
+            && value.y >= 0
+            && value.y < CHUNK_SIZE as i32
+        {
+            true => Ok(ChunkPos(value.x as u8, value.y as u8)),
+            false => Err(()),
+        }
     }
 }
 
-/// The error returned from failing to convert an [`IVec2`] to a [`ChunkPos`]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ToChunkPosError {
-    /// One of the coordinates was negative
-    Negative,
-    /// One of the coordinates was >= [`CHUNK_SIZE`](super::super::CHUNK_SIZE)
-    TooBig,
+impl From<ChunkPos> for IVec2 {
+    #[must_use]
+    #[inline]
+    fn from(v: ChunkPos) -> Self {
+        IVec2::new(v.0 as i32, v.1 as i32)
+    }
 }
 
 impl Add for ChunkPos {
@@ -108,13 +179,15 @@ impl Add for ChunkPos {
 
     #[must_use]
     fn add(self, rhs: Self) -> Self::Output {
-        todo!()
+        ChunkPos::new(self.0 + rhs.0, self.1 + rhs.1)
     }
 }
 
 impl AddAssign for ChunkPos {
     fn add_assign(&mut self, rhs: Self) {
-        todo!()
+        self.0 += rhs.0;
+        self.1 += rhs.1;
+        assert!(self.0 < CHUNK_SIZE as u8 && self.1 < CHUNK_SIZE as u8);
     }
 }
 
@@ -123,12 +196,14 @@ impl Sub for ChunkPos {
 
     #[must_use]
     fn sub(self, rhs: Self) -> Self::Output {
-        todo!()
+        ChunkPos::new(self.0 - rhs.0, self.1 - rhs.1)
     }
 }
 
 impl SubAssign for ChunkPos {
     fn sub_assign(&mut self, rhs: Self) {
-        todo!()
+        self.0 -= rhs.0;
+        self.1 -= rhs.1;
+        assert!(self.0 < CHUNK_SIZE as u8 && self.1 < CHUNK_SIZE as u8);
     }
 }

@@ -1,10 +1,13 @@
 //! Storage of tiles and interface with the Bevy engine
 
-use std::ops::{Add, AddAssign, Sub, SubAssign};
+use std::{
+    mem,
+    ops::{Add, AddAssign, Sub, SubAssign},
+};
 
 use bevy::{prelude::*, utils::HashMap};
 
-use crate::tile::Tile;
+use crate::{tile::Tile, CHUNK_SIZE};
 
 mod chunk;
 
@@ -19,39 +22,52 @@ pub struct Tilemap<T: Tile> {
 }
 
 impl<T: Tile> Tilemap<T> {
+    /// Returns a reference to the chunk at the given position if it exists
+    #[must_use]
+    pub fn get_chunk(&self, pos: IVec2) -> Option<&Chunk<T>> {
+        self.data.get(&pos)
+    }
+
+    /// Returns a mutable reference to the chunk at the given position if it exists
+    #[must_use]
+    pub fn get_chunk_mut(&mut self, pos: IVec2) -> Option<&mut Chunk<T>> {
+        self.data.get_mut(&pos)
+    }
+
+    /// Returns a mutable refernece to the chunk at the given position,
+    /// creating one if it doesn't exist
+    pub fn get_or_create_chunk(&mut self, pos: IVec2) -> &mut Chunk<T> {
+        self.data.entry(pos).or_default()
+    }
+
     /// Returns a reference to the tile at the position in this tilemap if it exists
     #[must_use]
     pub fn get(&self, pos: TilemapPos) -> Option<&T> {
-        todo!()
+        self.get_chunk(pos.chunk)
+            .and_then(|chunk| chunk[pos.tile].as_ref())
     }
 
     /// Returns a mutable reference to the tile at the position in this tilemap if it exists
-    ///
-    /// Useful for in-place manipulation
     #[must_use]
     pub fn get_mut(&mut self, pos: TilemapPos) -> Option<&mut T> {
-        todo!()
-    }
-
-    /// Returns a mutable referenct to the tile slot at the position,
-    /// allocating one if it doesn't exist
-    ///
-    /// If you know there will be a tile at the position, use [`Self::get_mut`] instead
-    #[must_use]
-    pub fn get_or_alloc_mut(&mut self, pos: TilemapPos) -> &mut Option<T> {
-        todo!()
-    }
-
-    /// Removes the tile at pos
-    pub fn remove(&mut self, pos: TilemapPos) -> Option<T> {
-        todo!()
+        self.get_chunk_mut(pos.chunk)
+            .and_then(|chunk| chunk[pos.tile].as_mut())
     }
 
     /// Inserts a tile into the tilemap
     ///
     /// Returns the replaced tile if one exists
     pub fn insert(&mut self, tile: impl Into<T>, pos: TilemapPos) -> Option<T> {
-        todo!()
+        mem::replace(
+            &mut self.get_or_create_chunk(pos.chunk)[pos.tile],
+            Some(tile.into()),
+        )
+    }
+
+    /// Removes the tile at pos and returns it
+    pub fn remove(&mut self, pos: TilemapPos) -> Option<T> {
+        self.get_chunk_mut(pos.chunk)
+            .and_then(|chunk| mem::take(&mut chunk[pos.tile]))
     }
 }
 
@@ -68,15 +84,22 @@ pub struct TilemapPos {
 
 impl From<IVec2> for TilemapPos {
     #[must_use]
-    fn from(_: IVec2) -> Self {
-        todo!()
+    fn from(v: IVec2) -> Self {
+        TilemapPos {
+            chunk: v / IVec2::splat(CHUNK_SIZE as i32),
+            tile: ChunkPos::new(
+                v.x as u8 & (CHUNK_SIZE as u8 - 1),
+                v.y as u8 & (CHUNK_SIZE as u8 - 1),
+            ),
+        }
     }
 }
 
 impl From<TilemapPos> for IVec2 {
     #[must_use]
-    fn from(_: TilemapPos) -> Self {
-        todo!()
+    #[inline]
+    fn from(v: TilemapPos) -> Self {
+        v.chunk * (CHUNK_SIZE as i32) + v.tile.to_ivec2()
     }
 }
 
@@ -85,13 +108,29 @@ impl Add for TilemapPos {
 
     #[must_use]
     fn add(self, rhs: Self) -> Self::Output {
-        todo!()
+        let mut chunk = self.chunk + rhs.chunk;
+        let (tile, carry) = self.tile.overflowing_add(rhs.tile);
+        if carry.x {
+            chunk.x += 1
+        }
+        if carry.y {
+            chunk.y += 1
+        }
+        TilemapPos { chunk, tile }
     }
 }
 
 impl AddAssign for TilemapPos {
     fn add_assign(&mut self, rhs: Self) {
-        todo!()
+        let (tile, carry) = self.tile.overflowing_add(rhs.tile);
+        self.tile = tile;
+        self.chunk += rhs.chunk;
+        if carry.x {
+            self.chunk.x += 1
+        }
+        if carry.y {
+            self.chunk.y += 1
+        }
     }
 }
 
@@ -100,13 +139,29 @@ impl Sub for TilemapPos {
 
     #[must_use]
     fn sub(self, rhs: Self) -> Self::Output {
-        todo!()
+        let mut chunk = self.chunk - rhs.chunk;
+        let (tile, carry) = self.tile.overflowing_sub(rhs.tile);
+        if carry.x {
+            chunk.x -= 1;
+        }
+        if carry.y {
+            chunk.y -= 1;
+        }
+        TilemapPos { chunk, tile }
     }
 }
 
 impl SubAssign for TilemapPos {
     fn sub_assign(&mut self, rhs: Self) {
-        todo!()
+        let (tile, carry) = self.tile.overflowing_sub(rhs.tile);
+        self.tile = tile;
+        self.chunk -= rhs.chunk;
+        if carry.x {
+            self.chunk.x -= 1
+        }
+        if carry.y {
+            self.chunk.y -= 1
+        }
     }
 }
 
@@ -115,13 +170,28 @@ impl Add<ChunkPos> for TilemapPos {
 
     #[must_use]
     fn add(self, rhs: ChunkPos) -> Self::Output {
-        todo!()
+        let mut chunk = self.chunk;
+        let (tile, carry) = self.tile.overflowing_add(rhs);
+        if carry.x {
+            chunk.x += 1
+        }
+        if carry.y {
+            chunk.y += 1
+        }
+        TilemapPos { chunk, tile }
     }
 }
 
 impl AddAssign<ChunkPos> for TilemapPos {
     fn add_assign(&mut self, rhs: ChunkPos) {
-        todo!()
+        let (tile, carry) = self.tile.overflowing_add(rhs);
+        self.tile = tile;
+        if carry.x {
+            self.chunk.x += 1
+        }
+        if carry.y {
+            self.chunk.y += 1
+        }
     }
 }
 
@@ -130,12 +200,65 @@ impl Sub<ChunkPos> for TilemapPos {
 
     #[must_use]
     fn sub(self, rhs: ChunkPos) -> Self::Output {
-        todo!()
+        let mut chunk = self.chunk;
+        let (tile, carry) = self.tile.overflowing_sub(rhs);
+        if carry.x {
+            chunk.x -= 1
+        }
+        if carry.y {
+            chunk.y -= 1
+        }
+        TilemapPos { chunk, tile }
     }
 }
 
 impl SubAssign<ChunkPos> for TilemapPos {
     fn sub_assign(&mut self, rhs: ChunkPos) {
-        todo!()
+        let (tile, carry) = self.tile.overflowing_sub(rhs);
+        self.tile = tile;
+        if carry.x {
+            self.chunk.x -= 1
+        }
+        if carry.y {
+            self.chunk.y -= 1
+        }
+    }
+}
+
+impl Add<IVec2> for TilemapPos {
+    type Output = Self;
+
+    /// `self` + `rhs` chunks
+    fn add(self, rhs: IVec2) -> Self::Output {
+        TilemapPos {
+            chunk: self.chunk + rhs,
+            tile: self.tile,
+        }
+    }
+}
+
+impl AddAssign<IVec2> for TilemapPos {
+    /// `self` += `rhs` chunks
+    fn add_assign(&mut self, rhs: IVec2) {
+        self.chunk += rhs
+    }
+}
+
+impl Sub<IVec2> for TilemapPos {
+    type Output = Self;
+
+    /// `self` - `rhs` chunks
+    fn sub(self, rhs: IVec2) -> Self::Output {
+        TilemapPos {
+            chunk: self.chunk - rhs,
+            tile: self.tile,
+        }
+    }
+}
+
+impl SubAssign<IVec2> for TilemapPos {
+    /// `self` -= `rhs` chunks
+    fn sub_assign(&mut self, rhs: IVec2) {
+        self.chunk -= rhs
     }
 }
