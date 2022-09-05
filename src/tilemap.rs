@@ -1,9 +1,6 @@
 //! Storage of tiles and interface with the Bevy engine
 
-use std::{
-    mem,
-    ops::{Add, AddAssign, Sub, SubAssign},
-};
+use std::ops::{Add, AddAssign, Sub, SubAssign};
 
 use bevy::{prelude::*, utils::HashMap};
 
@@ -73,17 +70,98 @@ impl<T: Tile> Tilemap<T> {
         self.get_chunk_mut(pos.chunk)
             .and_then(|chunk| chunk.remove(pos.tile))
     }
+
+    /// Returns an iterator over all chunks in this
+    pub fn iter_chunks(&self) -> impl Iterator<Item = &Chunk<T>> {
+        self.data.values()
+    }
+
+    /// Returns an iterator over all chunks in this that allows modifying each
+    pub fn iter_chunks_mut(&mut self) -> impl Iterator<Item = &mut Chunk<T>> {
+        self.data.values_mut()
+    }
+
+    /// Returns an iterator over all chunks in this and their positions
+    pub fn iter_chunk_positions(&self) -> impl Iterator<Item = (&IVec2, &Chunk<T>)> {
+        self.data.iter()
+    }
+
+    /// Returns an iterator over all chunks in this and their positions
+    /// that allows modifying each chunk
+    pub fn iter_chunk_positions_mut(&mut self) -> impl Iterator<Item = (&IVec2, &mut Chunk<T>)> {
+        self.data.iter_mut()
+    }
+
+    /// Returns an iterator over all tiles in this
+    pub fn iter(&self) -> impl Iterator<Item = &T> {
+        self.iter_chunks().flat_map(Chunk::iter_tiles)
+    }
+
+    /// Returns an iterator over all tiles in this that allows modifying each value
+    ///
+    /// If mutating the tile slot results in a change that requires
+    /// regenerating the chunk mesh, call [`Chunk::regenerate_mesh()`] on that chunk.
+    /// For an iterator that returns the chunk a tile is in as well,
+    /// use [`Self::iter_positions_mut()`]
+    pub fn iter_mut(&mut self) -> impl Iterator<Item = &mut T> {
+        self.iter_chunks_mut().flat_map(Chunk::iter_tiles_mut)
+    }
+
+    /// Returns an iterator over all tiles in this and their positions
+    pub fn iter_positions(&self) -> impl Iterator<Item = (TilemapPos, &T)> {
+        self.iter_chunk_positions().flat_map(|(chunk_pos, chunk)| {
+            chunk.iter_tile_positions().map(move |(tile_pos, tile)| {
+                (
+                    TilemapPos {
+                        chunk: *chunk_pos,
+                        tile: tile_pos,
+                    },
+                    tile,
+                )
+            })
+        })
+    }
+
+    /// Returns an iterator over all tiles in this and their positions
+    /// that allows modifying each tile
+    ///
+    /// If mutating the tile slot results in a change that requires
+    /// regenerating the chunk mesh, call [`Chunk::regenerate_mesh()`] on that chunk.
+    pub fn iter_positions_mut(&mut self) -> impl Iterator<Item = (TilemapPos, &mut T)> {
+        self.iter_chunk_positions_mut()
+            .flat_map(|(chunk_pos, chunk)| {
+                chunk
+                    .iter_tile_positions_mut()
+                    .map(move |(tile_pos, tile)| {
+                        (
+                            TilemapPos {
+                                chunk: *chunk_pos,
+                                tile: tile_pos,
+                            },
+                            tile,
+                        )
+                    })
+            })
+    }
 }
 
 /// A position in a tilemap
 ///
 /// Stored as the chunk the position is in and which tile the position is
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct TilemapPos {
     /// The chunk the position is in
     pub chunk: IVec2,
     /// The tile in the chunk the position is
     pub tile: ChunkPos,
+}
+
+impl TilemapPos {
+    /// Tile (0, 0) in chunk (0, 0)
+    pub const ZERO: Self = TilemapPos {
+        chunk: IVec2::ZERO,
+        tile: ChunkPos::ZERO,
+    };
 }
 
 impl From<IVec2> for TilemapPos {

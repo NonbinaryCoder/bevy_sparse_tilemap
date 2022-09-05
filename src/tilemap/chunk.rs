@@ -1,5 +1,5 @@
 use std::{
-    mem,
+    iter, mem,
     ops::{Add, AddAssign, Index, IndexMut, Sub, SubAssign},
 };
 
@@ -47,6 +47,74 @@ impl<T: Tile> Chunk<T> {
         self.regenerate_mesh();
         mem::take(&mut self[pos])
     }
+
+    /// Returns an iterator over all tile slots in this
+    ///
+    /// Iterates in row-major order
+    pub fn iter(&self) -> impl Iterator<Item = &Option<T>> + ExactSizeIterator {
+        self.tiles.iter()
+    }
+
+    /// Returns an iterator over all tile slots in this that allows modifying each value
+    ///
+    /// Iterates in row-major order.
+    /// If mutating the tile slot results in a change that requires
+    /// regenerating the chunk mesh, call [`Self::regenerate_mesh()`]
+    pub fn iter_mut(&mut self) -> impl Iterator<Item = &mut Option<T>> + ExactSizeIterator {
+        self.tiles.iter_mut()
+    }
+
+    /// Returns an iterator over all the set tiles in this
+    pub fn iter_tiles(&self) -> impl Iterator<Item = &T> {
+        self.iter().filter_map(|t| t.as_ref())
+    }
+
+    /// Returns an iterator over all the set tiles in this that allows modifying each value
+    ///
+    /// If mutating the tile slot results in a change that requires
+    /// regenerating the chunk mesh, call [`Self::regenerate_mesh()`]
+    pub fn iter_tiles_mut(&mut self) -> impl Iterator<Item = &mut T> {
+        self.iter_mut().filter_map(|t| t.as_mut())
+    }
+
+    /// Returns an iterator over all tile slots in this and their position
+    ///
+    /// Iterates in row-major order
+    ///
+    /// If you are looking for an iterator over all positions in a chunk,
+    /// use [`ChunkPos::iter_positions()`]
+    pub fn iter_positions(&self) -> impl Iterator<Item = (ChunkPos, &Option<T>)> {
+        ChunkPos::iter_positions().zip(self.iter())
+    }
+
+    /// Returns an iterator over all tile slots in this and their position
+    /// that allows modifying each tile slot
+    ///
+    /// Iterates in row-major order.
+    /// If mutating the tile slot results in a change that requires
+    /// regenerating the chunk mesh, call [`Self::regenerate_mesh()`]
+    ///
+    /// If you are looking for an iterator over all positions in a chunk,
+    /// use [`ChunkPos::iter_positions()`]
+    pub fn iter_positions_mut(&mut self) -> impl Iterator<Item = (ChunkPos, &mut Option<T>)> {
+        ChunkPos::iter_positions().zip(self.iter_mut())
+    }
+
+    /// Returns an iterator over all the set tiles in this and their positions
+    pub fn iter_tile_positions(&self) -> impl Iterator<Item = (ChunkPos, &T)> {
+        self.iter_positions()
+            .filter_map(|(pos, slot)| slot.as_ref().map(|tile| (pos, tile)))
+    }
+
+    /// Returns an iterator over all the set tiles in this and their positions
+    /// that allows mutating each tile
+    ///
+    /// If mutating the tile slot results in a change that requires
+    /// regenerating the chunk mesh, call [`Self::regenerate_mesh()`]
+    pub fn iter_tile_positions_mut(&mut self) -> impl Iterator<Item = (ChunkPos, &mut T)> {
+        self.iter_positions_mut()
+            .filter_map(|(pos, slot)| slot.as_mut().map(|tile| (pos, tile)))
+    }
 }
 
 impl<T: Tile> Default for Chunk<T> {
@@ -88,11 +156,16 @@ impl<T: Tile> IndexMut<ChunkPos> for Chunk<T> {
 /// # Notes
 ///
 /// Adding and subtracting chunk pos panics on overflow.
-/// If you want to carry, convert one to a [`TilemapPos`](super::TilemapPos) first
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// If you want to carry, convert one to a [`TilemapPos`](super::TilemapPos) first.
+/// If you want to wrap around chunk borders, use
+/// [`wrapping_add`](Self::wrapping_add) or [`wrapping_sub`](Self::wrapping_add)
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ChunkPos(u8, u8);
 
 impl ChunkPos {
+    /// The position of the tile at (0, 0) in a chunk
+    pub const ZERO: Self = ChunkPos(0, 0);
+
     /// Creates a [`ChunkPos`] with the given x and y coordinates
     ///
     /// # Panics
@@ -101,8 +174,18 @@ impl ChunkPos {
     #[must_use]
     #[inline]
     pub fn new(x: u8, y: u8) -> Self {
-        assert!(x < CHUNK_SIZE as u8 && y < CHUNK_SIZE as u8);
-        ChunkPos(x, y)
+        Self::try_new(x, y).unwrap()
+    }
+
+    /// Returns [`Some`] if a [`ChunkPos`] could be constructed from the given coordinates
+    #[must_use]
+    #[inline]
+    pub fn try_new(x: u8, y: u8) -> Option<Self> {
+        if x < CHUNK_SIZE as u8 && y < CHUNK_SIZE as u8 {
+            Some(ChunkPos(x, y))
+        } else {
+            None
+        }
     }
 
     /// The x coordinate of this
@@ -117,6 +200,13 @@ impl ChunkPos {
     #[inline]
     pub fn y(self) -> u8 {
         self.1
+    }
+
+    /// Returns a tuple of the x and y position of this
+    #[must_use]
+    #[inline]
+    pub fn tup(self) -> (u8, u8) {
+        (self.x(), self.y())
     }
 
     /// Sets the x position of this
@@ -199,6 +289,21 @@ impl ChunkPos {
         let (x, cx) = overflowing_sub_u8(self.x(), rhs.x());
         let (y, cy) = overflowing_sub_u8(self.y(), rhs.y());
         (ChunkPos(x, y), BVec2::new(cx, cy))
+    }
+
+    /// Returns an iterator over all possible positions
+    ///
+    /// Iterates in row-major order
+    pub fn iter_positions() -> impl Iterator<Item = Self> {
+        iter::successors(Some(ChunkPos::ZERO), |pos| {
+            let (mut x, mut y) = pos.tup();
+            x += 1;
+            if x == CHUNK_SIZE as u8 {
+                x = 0;
+                y += 1;
+            }
+            ChunkPos::try_new(x, y)
+        })
     }
 }
 
