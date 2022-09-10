@@ -1,5 +1,5 @@
 [package]
-name = "bevy_tilemap"
+name = "bevy_sparse_tilemap"
 version = "0.1.0"
 edition = "2021"
 
