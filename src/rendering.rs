@@ -33,6 +33,7 @@ pub trait MeshBuilder {
 
     /// Finishes mesh generation.
     ///
-    /// Returns the generated mesh and the new carry data
+    /// Returns the generated mesh and the new carry data.  This function will not be called
+    /// every time a MeshBuilder is created
     fn finish(self) -> (Mesh, Self::CarryData);
 }

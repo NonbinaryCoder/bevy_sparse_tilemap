@@ -15,8 +15,8 @@ pub use chunk::*;
 /// Uses chunks to generate more efficient meshes
 #[derive(Debug)]
 pub struct Tilemap<T: Tile> {
-    data: HashMap<IVec2, Chunk<T>>,
-    material: Handle<<<T as Tile>::MeshBuilder as MeshBuilder>::Material>,
+    pub(crate) data: HashMap<IVec2, Chunk<T>>,
+    pub(crate) material: Handle<<<T as Tile>::MeshBuilder as MeshBuilder>::Material>,
 }
 
 impl<T: Tile> Tilemap<T> {
