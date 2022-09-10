@@ -4,7 +4,7 @@ use std::ops::{Add, AddAssign, Sub, SubAssign};
 
 use bevy::{prelude::*, utils::HashMap};
 
-use crate::{tile::Tile, CHUNK_SIZE};
+use crate::{rendering::MeshBuilder, tile::Tile, CHUNK_SIZE};
 
 mod chunk;
 
@@ -16,6 +16,7 @@ pub use chunk::*;
 #[derive(Debug)]
 pub struct Tilemap<T: Tile> {
     data: HashMap<IVec2, Chunk<T>>,
+    material: Handle<<<T as Tile>::MeshBuilder as MeshBuilder>::Material>,
 }
 
 impl<T: Tile> Tilemap<T> {
@@ -69,6 +70,11 @@ impl<T: Tile> Tilemap<T> {
     pub fn remove(&mut self, pos: TilemapPos) -> Option<T> {
         self.get_chunk_mut(pos.chunk)
             .and_then(|chunk| chunk.remove(pos.tile))
+    }
+
+    /// Returns a reference to the handle for the material this uses
+    pub fn material(&self) -> &Handle<<<T as Tile>::MeshBuilder as MeshBuilder>::Material> {
+        &self.material
     }
 
     /// Returns an iterator over all chunks in this
@@ -143,6 +149,15 @@ impl<T: Tile> Tilemap<T> {
                     })
             })
     }
+
+    pub(crate) fn new(
+        material: Handle<<<T as Tile>::MeshBuilder as MeshBuilder>::Material>,
+    ) -> Self {
+        Tilemap {
+            data: HashMap::default(),
+            material,
+        }
+    }
 }
 
 /// A position in a tilemap
@@ -181,7 +196,7 @@ impl From<TilemapPos> for IVec2 {
     #[must_use]
     #[inline]
     fn from(v: TilemapPos) -> Self {
-        v.chunk * (CHUNK_SIZE as i32) + v.tile.to_ivec2()
+        v.chunk * (CHUNK_SIZE as i32) + v.tile.as_ivec2()
     }
 }
 

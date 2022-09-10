@@ -11,9 +11,9 @@ use crate::{rendering::MeshBuilder, tile::Tile, CHUNK_SIZE};
 #[derive(Debug)]
 pub struct Chunk<T: Tile> {
     tiles: [Option<T>; CHUNK_SIZE * CHUNK_SIZE],
-    regenerate_mesh: bool,
-    mesh_carry_data: <<T as Tile>::MeshBuilder as MeshBuilder>::CarryData,
-    mesh_entity: Option<Entity>,
+    pub(crate) regenerate_mesh: bool,
+    pub(crate) mesh_carry_data: <<T as Tile>::MeshBuilder as MeshBuilder>::CarryData,
+    pub(crate) mesh_entity: Option<Entity>,
 }
 
 impl<T: Tile> Chunk<T> {
@@ -240,7 +240,7 @@ impl ChunkPos {
 
     /// This as an [`IVec2`]
     #[must_use]
-    pub fn to_ivec2(self) -> IVec2 {
+    pub fn as_ivec2(self) -> IVec2 {
         self.into()
     }
 
